@@ -22,6 +22,12 @@ func buildBufferedReader(file *os.File, buffer_size int) bufferedReader {
 	return bufferedReader{reader, buffer_size, "", false}
 }
 
+/*
+ * getMoreLines() reads buffer_size of bytes from the designated file,
+ * extracts complete lines from the string of bytes, and saves the "tail"
+ * of the last incomplete line, if there is one.
+ */
+
 func (br *bufferedReader) getMoreLines() ([]string, error) {
 	if br.finished {
 		return nil, io.EOF
@@ -45,7 +51,6 @@ func (br *bufferedReader) getMoreLines() ([]string, error) {
 			}
 		}
 		if err != io.ErrUnexpectedEOF {
-			//fmt.Fprintln(os.Stderr, err)
 			return nil, err
 		}
 	}
@@ -61,7 +66,6 @@ func (br *bufferedReader) getMoreLines() ([]string, error) {
 
 			new_line := string(buf[0:line_cap])
 			if br.unfinished_line != "" {
-				//fmt.Printf("restoring unfinished line: %v, with: %v\n", br.unfinished_line, new_line)
 				new_line = br.unfinished_line + new_line
 				br.unfinished_line = ""
 			}
@@ -73,29 +77,23 @@ func (br *bufferedReader) getMoreLines() ([]string, error) {
 
 	if len(buf) > 0 {
 		br.unfinished_line = string(buf)
-		//fmt.Printf("saving unfinished line: %v\n", br.unfinished_line)
 	}
 
 	return lines, nil
 }
 
 func flush_buffer(file *os.File, buffer *[]byte) {
-	//fmt.Printf("flushing_buffer: %v\n", string(*buffer))
 	_, err := file.Write(*buffer)
 	if err != nil {
 		panic(err)
 	}
 	*buffer = (*buffer)[:0]
-	//fmt.Printf("buffer after flush inside: %v\n", string(*buffer))
-
 }
 
-func flush_sorted(filename_i int, lines []string) string {
+func flush_and_sort_lines(output_filename string, lines []string) {
 	sort.Strings(lines)
 
-	filename := "tmp_" + strconv.Itoa(filename_i) + ".txt"
-
-	f, err := os.Create(filename)
+	f, err := os.Create(output_filename)
 	if err != nil {
 		panic(err)
 	}
@@ -108,7 +106,6 @@ func flush_sorted(filename_i int, lines []string) string {
 			panic(err)
 		}
 	}
-	return filename
 }
 
 func split_file(filename string, memory_size int, max_len_size int) []string {
@@ -135,7 +132,8 @@ func split_file(filename string, memory_size int, max_len_size int) []string {
 			}
 		}
 
-		tmp_filename := flush_sorted(tmp_file_i, lines)
+		tmp_filename := "tmp_" + strconv.Itoa(tmp_file_i) + ".txt"
+		flush_and_sort_lines(tmp_filename, lines)
 		split_filenames = append(split_filenames, tmp_filename)
 		tmp_file_i += 1
 	}
@@ -143,9 +141,14 @@ func split_file(filename string, memory_size int, max_len_size int) []string {
 	return split_filenames
 }
 
+/*
+ * merge_k_files reads sorted lines from filenames using bufferedReader, finds the minimum one
+ * and saves it into write_buffer, which is flushed into output_file when full.
+ * Deletes the temporary files that are merged.
+ */
+
 func merge_k_files(filenames []string, output_filename string, memory_size, max_len_size int) {
 	n_buffers := len(filenames)
-	//fmt.Printf("n_buffers: %v\n", n_buffers)
 	buffer_size := memory_size/(n_buffers+1) - max_len_size // (memory_size - max_len_size*(n_buffers+1)) / (n_buffers + 1)
 	// n_buffers + 1 because of write_buffer
 
@@ -207,11 +210,9 @@ func merge_k_files(filenames []string, output_filename string, memory_size, max_
 			}
 		}
 
-		//fmt.Printf("min line: %v\n", min_line)
 		min_line_bytes := []byte(min_line)
 		if cap(write_buffer)-len(write_buffer) < len(min_line_bytes) {
 			flush_buffer(output_file, &write_buffer)
-			//fmt.Printf("buffer after flush outside: %v\n", string(write_buffer))
 		}
 		write_buffer = append(write_buffer, min_line_bytes...)
 
@@ -238,32 +239,24 @@ func merge_k_files(filenames []string, output_filename string, memory_size, max_
 		flush_buffer(output_file, &write_buffer)
 	}
 
-	skip_delete := false
-	if !skip_delete {
-		for _, filename := range filenames {
-			err := os.Remove(filename)
-			if err != nil {
-				panic(err)
-			}
+	for _, filename := range filenames {
+		err := os.Remove(filename)
+		if err != nil {
+			panic(err)
 		}
 	}
-
 }
 
 func merge_all(filenames []string, output_filename string, memory_size, max_len_size int) {
 	max_k_acceptable := 8
 	for {
+		// check that there's enough space for all buffers
 		buffer_size := memory_size/(max_k_acceptable+1) - max_len_size
 		if buffer_size >= max_len_size {
 			break
 		}
 		max_k_acceptable = max_k_acceptable / 2
-		if max_k_acceptable == 1 {
-			panic("max_len_size is bigger than the smallest possible buffer size!")
-		}
 	}
-
-	//fmt.Println(max_k_acceptable)
 
 	i_pass := 0
 	for {
@@ -290,6 +283,13 @@ func merge_all(filenames []string, output_filename string, memory_size, max_len_
 }
 
 func MergeSort(filename string, memory_size, max_len_size int) {
+	// checks that at least two files would be able to be merged while writing to
+	// a third one
+	buffer_size := memory_size/(2+1) - max_len_size
+	if buffer_size < max_len_size {
+		panic("max_len_size is bigger than the smallest possible buffer size!")
+	}
+
 	tmp_filenames := split_file(filename, memory_size, max_len_size)
 	output_filename := "sorted_" + filename
 	merge_all(tmp_filenames, output_filename, memory_size, max_len_size)

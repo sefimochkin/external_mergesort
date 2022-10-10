@@ -23,7 +23,7 @@ func readAllLines(filename string) []string {
 
 	var lines []string
 	scanner := bufio.NewScanner(file)
-	// optionally, resize scanner's capacity for lines over 64K, see next example
+
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 	}
@@ -39,8 +39,6 @@ func writeAllLines(filename string, lines []string) {
 	defer file.Close()
 
 	for _, line := range lines {
-
-		//line = line + "\n"
 		_, err = file.WriteString(line + "\n")
 		if err != nil {
 			panic(err)
@@ -50,12 +48,14 @@ func writeAllLines(filename string, lines []string) {
 
 func main() {
 
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 10; i++ {
 		filename := "bigfile.txt"
 
 		max_string_len := 3 + rand.Intn(1000)
 		number_of_lines := 1000 + rand.Intn(100000)
 		memory_size := max_string_len*6 + rand.Intn(50000)
+		// max_string_len*6 is used to satisfy the restriction for the memory_size and max_string_len
+		// that is checked in external_mergesort.go:MergeSort()
 
 		fmt.Printf("number of lines: %v, max string len: %v, memory_size: %v\n", number_of_lines, max_string_len, memory_size)
 
@@ -70,11 +70,12 @@ func main() {
 
 		right_lines := readAllLines("sorted_" + filename)
 
+		break_everything := false
 		if len(left_lines) != len(right_lines) {
 			fmt.Println("Number of lines differs!")
+			break_everything = true
 		}
 
-		break_everything := false
 		for i := 0; i < len(left_lines); i++ {
 			left_line := left_lines[i]
 			right_line := right_lines[i]
@@ -87,11 +88,10 @@ func main() {
 		}
 
 		if break_everything {
-			fmt.Println("BREAK EVERYTHING")
+			fmt.Println("Something is wrong!")
 			break
 		}
-
-		fmt.Println("everything is correct!")
 	}
 
+	fmt.Println("Everything is correct!")
 }
